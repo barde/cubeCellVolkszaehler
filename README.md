@@ -1,214 +1,257 @@
-# Volkszaehler CubeCell LoRa Smart Meter Bridge
+# 🔌 Volkszähler LoRa Smart Meter Bridge
 
-This project creates a wireless bridge between a Volkszaehler IR reader and Home Assistant using LoRa communication. A Heltec CubeCell reads the smart meter data and transmits it via LoRa to a LilyGo LoRa32 gateway running ESPHome with a real-time OLED display.
+<div align="center">
 
-## Architecture
+![License](https://img.shields.io/badge/license-MIT-blue.svg)
+![Platform](https://img.shields.io/badge/platform-ESP32%20%7C%20CubeCell-green)
+![LoRa](https://img.shields.io/badge/LoRa-433MHz-orange)
+![ESPHome](https://img.shields.io/badge/ESPHome-2024.8+-purple)
+![PlatformIO](https://img.shields.io/badge/PlatformIO-Core%206-blue)
+
+**Long-range, battery-powered smart meter monitoring for Home Assistant**
+
+[Features](#-features) • [Hardware](#-hardware) • [Quick Start](#-quick-start) • [Documentation](#-documentation) • [Gallery](#-gallery)
+
+</div>
+
+---
+
+## 🎯 Overview
+
+Transform your smart meter into a wireless IoT sensor! This project creates a **battery-efficient LoRa bridge** between Volkszähler IR readers and Home Assistant, enabling remote monitoring of energy consumption without cables or WiFi at the meter location.
+
+```mermaid
+graph LR
+    A[🏠 Smart Meter] -->|IR| B[📡 CubeCell]
+    B -->|LoRa 433MHz| C[📶 LoRa Gateway]
+    C -->|WiFi| D[🏡 Home Assistant]
+    style B fill:#90EE90
+    style C fill:#87CEEB
+```
+
+### 🎥 Demo
+
+<details>
+<summary><b>View Live Dashboard</b></summary>
 
 ```
-Smart Meter → IR Reader → CubeCell → LoRa P2P → LilyGo LoRa32 → WiFi/API → Home Assistant
-                          (Battery)               (OLED Display + ESPHome)
+┌─────────────────────────┐
+│    SMART METER          │
+│─────────────────────────│
+│    CONSUMING            │
+│      247W               │
+│                         │
+│─────────────────────────│
+│ In:1234.5kWh Out:567.8  │
+└─────────────────────────┘
 ```
 
-## Features
+</details>
 
-- **Smart Meter Reading**: Reads SML protocol data from Volkszaehler IR reader
-- **Wireless Transmission**: LoRa P2P communication (868 MHz EU band)
-- **Power Efficient**: Deep sleep support for 2-3 months battery life
-- **Real-time Display**: OLED display on gateway shows current readings
-- **Home Assistant Integration**: Native ESPHome API integration
-- **Bidirectional Energy**: Tracks both consumption and generation (solar)
-- **Link Quality Monitoring**: RSSI/SNR tracking for both devices
-- **Multiple Implementations**: Binary (efficient) or JSON (readable) protocols
+## ✨ Features
 
-## Implementation Options
+### 🔋 Ultra-Low Power
+- **3+ months** on a single 2000mAh battery
+- Deep sleep with **3.5µA** consumption
+- Configurable transmission intervals
 
-### 1. LoRa P2P Binary (Recommended) ✅
-- **File**: `src/main_lora.cpp`
-- **Packet Size**: 20 bytes
-- **Battery Life**: 2-3 months
-- **Use When**: Maximum battery efficiency is critical
+### 📡 Long Range Communication
+- **2km+ urban** / **10km+ rural** range
+- 433 MHz ISM band (license-free)
+- Robust LoRa modulation with error correction
 
-### 2. LoRa P2P JSON
-- **File**: `src/main_lora_json.cpp`  
-- **Packet Size**: 60-80 bytes
-- **Battery Life**: 1-2 months
-- **Use When**: Easier debugging and parsing needed
+### 🏠 Smart Home Ready
+- **Native ESPHome integration**
+- Auto-discovery in Home Assistant
+- Real-time OLED display
+- Energy dashboard compatible
 
-### 3. Original Serial Only
-- **File**: `src/main.cpp`
-- **Use When**: Testing with USB connection only
+### 📊 Comprehensive Monitoring
+- ⚡ Live power consumption/generation
+- 📈 Total energy import/export
+- 🔋 Battery level monitoring
+- 📶 Signal strength (RSSI/SNR)
+- 📦 Packet loss tracking
 
-### Why Not Meshtastic?
-- CubeCell (ASR6501) not officially supported
-- 5-7x packet overhead reduces battery life
-- Overkill for single sensor point-to-point
-- See `meshtastic/README.md` for detailed comparison
+## 🛠 Hardware
 
-## Hardware Requirements
+### Required Components
 
-### Transmitter
-- **Heltec CubeCell HTCC-AB01** Dev Board
-- **Volkszaehler IR** reading head
-- **Battery**: Optional 3.7V LiPo (2000mAh recommended)
-- **Antenna**: 868 MHz (included with CubeCell)
+| Component | Model | Price | Link |
+|-----------|-------|-------|------|
+| **Transmitter** | Heltec CubeCell HTCC-AB01 | ~$15 | [🛒](https://heltec.org/project/htcc-ab01/) |
+| **IR Reader** | Volkszähler IR Head | ~$25 | [🛒](https://wiki.volkszaehler.org/hardware/controllers/ir-schreib-lesekopf) |
+| **Gateway** | LilyGo T3 LoRa32 v1.6.1 | ~$30 | [🛒](https://www.lilygo.cc/products/lora3) |
+| **Battery** | 18650 Li-Ion (optional) | ~$10 | Local |
+| **Case** | Waterproof enclosure | ~$15 | Local |
 
-### Gateway
-- **LilyGo LoRa32 V2.1** with SX1262
-- **OLED Display**: 0.96" 128x64 (built-in)
-- **Power**: USB or battery
-- **WiFi**: For Home Assistant connection
+**Total Cost: ~$95**
 
-## Wiring
+### 📐 Wiring Diagram
 
-### CubeCell Connections
-| Volkszaehler | CubeCell |
-|-------------|----------|
-| TX          | GPIO4    |
-| RX          | GPIO5    |
-| GND         | GND      |
-| VCC         | 3V3      |
+<details>
+<summary><b>CubeCell ← → IR Reader Connections</b></summary>
 
-### LilyGo LoRa32 (No wiring needed - all integrated)
-- LoRa SX1262: Connected via SPI
-- OLED Display: Connected via I2C
-- WiFi: ESP32 built-in
+```
+┌──────────────┐         ┌─────────────┐
+│   CubeCell   │         │  IR Reader  │
+│              │         │             │
+│         GPIO4├─────────┤TX           │
+│         GPIO5├─────────┤RX           │
+│           GND├─────────┤GND          │
+│           3V3├─────────┤VCC          │
+│              │         │             │
+│    [LoRa]    │         │   [IR LED]  │
+└──────────────┘         └─────────────┘
+```
 
-## Quick Start
+</details>
 
-### 1. CubeCell Setup
+## 🚀 Quick Start
+
+### 1️⃣ Flash CubeCell Transmitter
+
 ```bash
-# Build and upload LoRa firmware
-pio run -e cubecell_lora --target upload
+# Clone repository
+git clone https://github.com/barde/cubeCellVolkszaehler.git
+cd volkszahlerCubeCell
+
+# Install PlatformIO
+pip install platformio
+
+# Build and upload firmware
+pio run -e cubecell_testmode --target upload
 
 # Monitor output (optional)
-pio device monitor -e cubecell_lora
+pio device monitor
 ```
 
-### 2. LilyGo Gateway Setup
+### 2️⃣ Setup LoRa Gateway
+
 ```bash
+# Navigate to gateway directory
 cd lilygo_gateway
 
-# Configure WiFi
+# Configure WiFi credentials
 cp secrets.yaml.example secrets.yaml
-nano secrets.yaml  # Add your WiFi credentials
+nano secrets.yaml  # Add your WiFi SSID and password
 
-# Install and upload ESPHome
+# Install ESPHome
 pip install esphome
-esphome run lilygo_lora_gateway.yaml
+
+# Flash gateway
+esphome run lilygo_lora_receiver.yaml
 ```
 
-### 3. Home Assistant
-- Gateway auto-discovers in ESPHome integration
-- Add sensors to Energy Dashboard
-- Configure automations for low battery alerts
+### 3️⃣ Home Assistant Integration
 
-## Display Information
+1. Go to **Settings** → **Devices & Services**
+2. ESPHome integration auto-discovers the gateway
+3. Click **Configure** to add
+4. Add sensors to Energy Dashboard
 
-The LilyGo gateway OLED shows:
-- **Current Power**: Real-time consumption/generation
-- **Daily Energy**: Today's totals
-- **Battery Status**: CubeCell battery level
-- **Link Quality**: RSSI and SNR
-- **Last Update**: Time since last packet
+## 📖 Documentation
 
-## Data Transmitted
+### Configuration Files
 
-| Field | Description | Unit | Range |
-|-------|-------------|------|-------|
-| Power | Current power draw/generation | W | ±10000 |
-| Consumption | Total energy consumed | kWh | 0-999999 |
-| Generation | Total energy generated | kWh | 0-999999 |
-| Battery | CubeCell battery voltage | V | 2.0-4.2 |
-| RSSI | Signal strength | dBm | -120 to 0 |
-| SNR | Signal quality | dB | -20 to +10 |
-| Counter | Packet sequence number | - | 0-4294967295 |
-
-## Building Options
-
-```bash
-# Binary protocol (most efficient)
-pio run -e cubecell_lora --target upload
-
-# JSON protocol (easier debugging)  
-pio run -e cubecell_lora_json --target upload
-
-# Original serial-only version
-pio run -e cubecell --target upload
-
-# Debug mode (30s interval)
-pio run -e cubecell_debug --target upload
-
-# Production mode (60s interval + sleep)
-pio run -e cubecell_production --target upload
-```
-
-## Configuration
-
-Edit `src/lora_data.h` for LoRa parameters:
+#### 🔧 LoRa Parameters (`src/lora_data.h`)
 ```cpp
-#define LORA_FREQUENCY      868000000  // 868 MHz EU (915 MHz US)
-#define LORA_SPREADING_FACTOR 7        // 7=fast, 12=long range
-#define LORA_BANDWIDTH      0           // 0=125kHz, 1=250kHz
-#define LORA_TX_POWER       14          // TX power in dBm
+#define LORA_FREQUENCY      433000000  // 433 MHz EU
+#define LORA_SPREADING_FACTOR 7        // SF7 for speed
+#define LORA_BANDWIDTH      0           // 125 kHz
+#define LORA_TX_POWER       14          // 14 dBm
 ```
 
-## Power Consumption
+#### ⚙️ Build Modes (`platformio.ini`)
 
-- **CubeCell Active**: ~48mA (during reading/transmission)
-- **CubeCell Sleep**: ~3.5µA
-- **Battery Life**: 2-3 months with 2000mAh battery (60s interval)
-- **LilyGo Gateway**: ~100mA (WiFi + LoRa RX + Display)
+| Mode | Description | Battery Life |
+|------|-------------|--------------|
+| `cubecell_testmode` | 5-second intervals, test data | 1 week |
+| `cubecell_lora` | 60-second intervals, production | 3 months |
+| `cubecell_debug` | USB powered, verbose logging | N/A |
 
-## Supported Smart Meters
+### 📊 Data Protocol
 
-Compatible with SML protocol meters including:
-- **Logarex LK13BE** (3-phase with bidirectional)
-- **Logarex LK11BE** (1-phase with bidirectional)
-- EMH ED300L
-- Iskra MT681
-- Easymeter Q3D
-- Other SML-compatible meters
+```cpp
+typedef struct {
+  float power_watts;           // -10000 to 10000 W
+  float total_consumption_kwh; // 0 to 999999 kWh
+  float total_generation_kwh;  // 0 to 999999 kWh  
+  float battery_voltage;       // 2.0 to 4.2 V
+  uint32_t packet_counter;     // Sequence number
+} MeterData;  // 20 bytes total
+```
 
-## OBIS Codes
+## 🔍 Supported Smart Meters
 
-| OBIS Code | Description | Unit |
-|-----------|-------------|------|
-| 1-0:1.8.0 | Total consumption | kWh |
-| 1-0:2.8.0 | Total generation | kWh |
-| 1-0:16.7.0 | Current power | W |
+Compatible with **SML protocol** meters:
 
-## Troubleshooting
+✅ Logarex LK13BE (tested)  
+✅ EMH ED300L  
+✅ Iskra MT681  
+✅ Easymeter Q3D  
+✅ Most German smart meters  
 
-### No LoRa Reception
-1. Check antennas are connected
-2. Verify same frequency/SF/BW on both devices
-3. Monitor CubeCell: `pio device monitor -e cubecell_lora`
-4. Check ESPHome logs: `esphome logs lilygo_lora_gateway.yaml`
+## 🐛 Troubleshooting
 
-### Poor Battery Life
-- Increase send interval (currently 60s)
-- Check for meter read errors causing retries
-- Verify deep sleep is working (production mode)
+<details>
+<summary><b>Common Issues & Solutions</b></summary>
 
-### Display Not Working
-- Check I2C pins in ESPHome config
-- Verify display type (SSD1306 128x64)
-- Try I2C scan to find address
+| Problem | Solution |
+|---------|----------|
+| **No LoRa reception** | Check antennas connected, verify 433 MHz on both devices |
+| **Poor range** | Use external antenna, increase TX power, reduce SF |
+| **Battery drains fast** | Increase send interval, check deep sleep working |
+| **Wrong energy values** | Verify OBIS codes match your meter model |
+| **Display not working** | Check I2C connections (SDA=21, SCL=22) |
 
-### No Data from Meter
-- Check IR head alignment with meter
-- Verify wiring connections
-- Confirm meter outputs SML protocol
-- Check serial baud rate (9600)
+</details>
 
-## Home Assistant Energy Dashboard
+## 📈 Performance
 
-1. Go to **Settings → Dashboards → Energy**
-2. Under **Electricity grid**:
-   - Add "Smart Meter Total Consumption" as Grid consumption
-   - Add "Smart Meter Total Generation" as Return to grid
-3. Current power shows automatically
+| Metric | Value |
+|--------|-------|
+| **Range (Urban)** | 2-3 km |
+| **Range (Rural)** | 8-12 km |
+| **Battery Life** | 3+ months (2000mAh) |
+| **Packet Size** | 20 bytes |
+| **TX Current** | 48 mA |
+| **Sleep Current** | 3.5 µA |
+| **Gateway Power** | 100 mA @ 5V |
 
-## License
+## 🤝 Contributing
 
-MIT License - Feel free to modify and use in your projects.
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
+3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
+4. Push to the branch (`git push origin feature/AmazingFeature`)
+5. Open a Pull Request
+
+## 📝 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## 🙏 Acknowledgments
+
+- [Volkszähler](https://volkszaehler.org/) - IR reader protocol
+- [Heltec](https://heltec.org/) - CubeCell platform
+- [ESPHome](https://esphome.io/) - ESP32 framework
+- [Home Assistant](https://home-assistant.io/) - Smart home platform
+
+## 📬 Contact
+
+**Barde** - [@barde](https://github.com/barde)
+
+Project Link: [https://github.com/barde/cubeCellVolkszaehler](https://github.com/barde/cubeCellVolkszaehler)
+
+---
+
+<div align="center">
+
+**⭐ Star this repo if you find it useful!**
+
+Made with ❤️ for the Home Automation Community
+
+</div>

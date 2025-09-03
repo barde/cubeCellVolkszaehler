@@ -2,7 +2,7 @@
 
 <div align="center">
 
-![License](https://img.shields.io/badge/license-MIT-blue.svg)
+![License](https://img.shields.io/badge/license-AGPLv3-blue.svg)
 ![Platform](https://img.shields.io/badge/platform-ESP32%20%7C%20CubeCell-green)
 ![LoRa](https://img.shields.io/badge/LoRa-433MHz-orange)
 ![ESPHome](https://img.shields.io/badge/ESPHome-2024.8+-purple)
@@ -212,7 +212,14 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## 📝 License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the GNU Affero General Public License v3.0 (AGPLv3) - see the [LICENSE](LICENSE) file for details.
+
+This means:
+- ✅ You can use, modify, and distribute this software
+- ✅ You can use it for commercial purposes
+- ⚠️ You must disclose source code when distributing
+- ⚠️ You must use the same license for modifications
+- ⚠️ Network use requires source disclosure (SaaS provision)
 
 ## 🙏 Acknowledgments
 

@@ -1,0 +1,186 @@
+esphome:
+  name: volkszahler-lora-gateway
+  friendly_name: Volkszähler LoRa Gateway
+  includes:
+    - lora_receiver.h
+  libraries:
+    - "SPI"
+    - "jgromes/RadioLib@^6.3.0"  # Latest stable RadioLib
+
+esp32:
+  board: ttgo-lora32-v21  # Adjust based on your exact LilyGo model
+  framework:
+    type: arduino
+
+# Enable logging
+logger:
+  level: DEBUG
+
+# Enable Home Assistant API
+api:
+
+# OTA updates
+ota:
+  - platform: esphome
+
+# WiFi Configuration
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  
+  # Enable fallback hotspot in case wifi connection fails
+  ap:
+    ssid: "LoRa-Gateway-Fallback"
+    password: !secret wifi_failover
+
+captive_portal:
+
+# Web server for debugging
+web_server:
+  port: 80
+
+# Time synchronization for timestamps
+time:
+  - platform: homeassistant
+    id: homeassistant_time
+
+# Custom LoRa receiver component
+custom_component:
+  - lambda: |-
+      auto lora_receiver = new LoRaReceiver();
+      return {lora_receiver};
+    components:
+      - id: lora_rx
+
+# Sensors for meter data
+sensor:
+  # Current Power
+  - platform: template
+    name: "Smart Meter Power"
+    id: meter_power
+    unit_of_measurement: "W"
+    device_class: power
+    state_class: measurement
+    accuracy_decimals: 1
+    icon: "mdi:flash"
+    
+  # Total Consumption
+  - platform: template
+    name: "Smart Meter Total Consumption"
+    id: meter_consumption
+    unit_of_measurement: "kWh"
+    device_class: energy
+    state_class: total_increasing
+    accuracy_decimals: 3
+    icon: "mdi:counter"
+    
+  # Total Generation
+  - platform: template
+    name: "Smart Meter Total Generation"
+    id: meter_generation
+    unit_of_measurement: "kWh"
+    device_class: energy
+    state_class: total_increasing
+    accuracy_decimals: 3
+    icon: "mdi:solar-power"
+    
+  # Battery Voltage
+  - platform: template
+    name: "Smart Meter Battery Voltage"
+    id: meter_battery
+    unit_of_measurement: "V"
+    device_class: voltage
+    state_class: measurement
+    accuracy_decimals: 2
+    icon: "mdi:battery"
+    
+  # Link Quality - RSSI
+  - platform: template
+    name: "LoRa Link RSSI"
+    id: lora_rssi
+    unit_of_measurement: "dBm"
+    device_class: signal_strength
+    state_class: measurement
+    accuracy_decimals: 0
+    icon: "mdi:signal"
+    entity_category: diagnostic
+    
+  # Link Quality - SNR
+  - platform: template
+    name: "LoRa Link SNR"
+    id: lora_snr
+    unit_of_measurement: "dB"
+    state_class: measurement
+    accuracy_decimals: 1
+    icon: "mdi:signal-cellular-3"
+    entity_category: diagnostic
+    
+  # Packet Counter
+  - platform: template
+    name: "LoRa Packet Counter"
+    id: packet_counter
+    accuracy_decimals: 0
+    icon: "mdi:counter"
+    entity_category: diagnostic
+    
+  # Missed Packets
+  - platform: template
+    name: "LoRa Missed Packets"
+    id: missed_packets
+    accuracy_decimals: 0
+    icon: "mdi:alert-circle"
+    entity_category: diagnostic
+
+# Text sensors for status
+text_sensor:
+  - platform: template
+    name: "LoRa Status"
+    id: lora_status
+    icon: "mdi:information"
+    entity_category: diagnostic
+    
+  - platform: template
+    name: "Last Packet Time"
+    id: last_packet_time
+    icon: "mdi:clock"
+    entity_category: diagnostic
+
+# Binary sensor for connection status
+binary_sensor:
+  - platform: template
+    name: "LoRa Connected"
+    id: lora_connected
+    device_class: connectivity
+    entity_category: diagnostic
+    lambda: |-
+      // Consider connected if we received a packet in the last 3 minutes
+      return id(lora_rx).seconds_since_last_packet() < 180;
+
+# Interval to check connection status
+interval:
+  - interval: 10s
+    then:
+      - lambda: |-
+          // Update connection status
+          id(lora_connected).publish_state(id(lora_rx).seconds_since_last_packet() < 180);
+          
+          // Update status text
+          if (id(lora_rx).seconds_since_last_packet() < 180) {
+            id(lora_status).publish_state("Connected");
+          } else if (id(lora_rx).seconds_since_last_packet() < 600) {
+            id(lora_status).publish_state("Warning: No data for " + 
+              to_string(id(lora_rx).seconds_since_last_packet()) + " seconds");
+          } else {
+            id(lora_status).publish_state("Disconnected");
+          }
+
+# Button to reset missed packet counter
+button:
+  - platform: template
+    name: "Reset Missed Packet Counter"
+    icon: "mdi:restart"
+    entity_category: config
+    on_press:
+      - lambda: |-
+          id(lora_rx).reset_missed_packets();
+          id(missed_packets).publish_state(0);

@@ -11,14 +11,15 @@
  */
 
 #include "Arduino.h"
-#include <SoftwareSerial.h>
+// SoftwareSerial is built-in for CubeCell
+#include "softSerial.h"
 
 #define VZ_RX_PIN GPIO4
 #define VZ_TX_PIN GPIO5
 #define SERIAL_BAUD 9600
 #define DEBUG_SERIAL_BAUD 115200
 
-#define DEBUG_MODE false
+#define DEBUG_MODE true
 
 #if DEBUG_MODE
   #define SEND_INTERVAL 5000
@@ -28,7 +29,7 @@
   #define SLEEP_TIME 60000
 #endif
 
-SoftwareSerial vzSerial(VZ_RX_PIN, VZ_TX_PIN);
+softSerial vzSerial(VZ_RX_PIN, VZ_TX_PIN);
 
 uint8_t smlBuffer[512];
 uint16_t smlBufferIndex = 0;
@@ -37,12 +38,24 @@ bool smlMessageComplete = false;
 const uint8_t SML_START[] = {0x1B, 0x1B, 0x1B, 0x1B, 0x01, 0x01, 0x01, 0x01};
 const uint8_t SML_END[] = {0x1B, 0x1B, 0x1B, 0x1B, 0x1A};
 
-uint32_t currentPower = 0;
+int32_t currentPower = 0;  // Changed to signed to support negative values for generation
 uint32_t totalConsumption = 0;
+uint32_t totalGeneration = 0;  // Added for tracking power generation (2.8.0)
 uint32_t lastSendTime = 0;
 
 static TimerEvent_t sleepTimer;
 bool lowpower = false;
+
+// Forward declarations
+void onSleepTimerEvent();
+void readSMLData();
+bool checkForSMLStart();
+bool checkForSMLEnd();
+void processSMLMessage();
+int32_t extractPower();
+uint32_t extractConsumption();
+uint32_t extractGeneration();
+void sendData();
 
 void setup() {
   Serial.begin(DEBUG_SERIAL_BAUD);
@@ -146,18 +159,22 @@ bool checkForSMLEnd() {
 void processSMLMessage() {
   currentPower = extractPower();
   totalConsumption = extractConsumption();
+  totalGeneration = extractGeneration();
   
   if(DEBUG_MODE) {
     Serial.print("Power: ");
     Serial.print(currentPower);
     Serial.println(" W");
-    Serial.print("Total: ");
-    Serial.print(totalConsumption);
+    Serial.print("Consumption (1.8.0): ");
+    Serial.print(totalConsumption / 1000.0, 3);
+    Serial.println(" kWh");
+    Serial.print("Generation (2.8.0): ");
+    Serial.print(totalGeneration / 1000.0, 3);
     Serial.println(" kWh");
   }
 }
 
-uint32_t extractPower() {
+int32_t extractPower() {  // Changed to signed to handle negative power (generation)
   const uint8_t POWER_OBIS[] = {0x01, 0x00, 0x10, 0x07, 0x00};
   
   for(uint16_t i = 0; i < smlBufferIndex - 10; i++) {
@@ -169,8 +186,15 @@ uint32_t extractPower() {
       }
     }
     if(found) {
-      uint32_t value = 0;
+      int32_t value = 0;
       uint8_t valueLength = smlBuffer[i + sizeof(POWER_OBIS) + 1] & 0x0F;
+      
+      // Check if value is signed (MSB set)
+      bool isNegative = false;
+      if(valueLength > 0 && (smlBuffer[i + sizeof(POWER_OBIS) + 2] & 0x80)) {
+        isNegative = true;
+        value = -1; // Start with -1 for sign extension
+      }
       
       for(uint8_t k = 0; k < valueLength && k < 4; k++) {
         value = (value << 8) | smlBuffer[i + sizeof(POWER_OBIS) + 2 + k];
@@ -228,13 +252,62 @@ uint32_t extractConsumption() {
   return 0;
 }
 
+uint32_t extractGeneration() {
+  // OBIS code for generation: 2.8.0 (negative energy flow)
+  const uint8_t GENERATION_OBIS[] = {0x01, 0x00, 0x02, 0x08, 0x00};
+  
+  for(uint16_t i = 0; i < smlBufferIndex - 10; i++) {
+    bool found = true;
+    for(uint8_t j = 0; j < sizeof(GENERATION_OBIS); j++) {
+      if(smlBuffer[i + j] != GENERATION_OBIS[j]) {
+        found = false;
+        break;
+      }
+    }
+    if(found) {
+      uint32_t value = 0;
+      uint8_t valueLength = smlBuffer[i + sizeof(GENERATION_OBIS) + 1] & 0x0F;
+      
+      for(uint8_t k = 0; k < valueLength && k < 4; k++) {
+        value = (value << 8) | smlBuffer[i + sizeof(GENERATION_OBIS) + 2 + k];
+      }
+      
+      int8_t scaler = (int8_t)smlBuffer[i + sizeof(GENERATION_OBIS) + 2 + valueLength];
+      
+      // Handle scaler for kWh values
+      if(scaler == -3) {
+        value = value;  // Already in Wh
+      } else if(scaler == -2) {
+        value = value * 10;
+      } else if(scaler == -1) {
+        value = value * 100;
+      }
+      
+      return value;
+    }
+  }
+  return 0;
+}
+
 void sendData() {
   Serial.println("=== Sending Data ===");
   Serial.print("Current Power: ");
-  Serial.print(currentPower);
+  if(currentPower < 0) {
+    Serial.print("Generating ");
+    Serial.print(-currentPower);
+  } else {
+    Serial.print("Consuming ");
+    Serial.print(currentPower);
+  }
   Serial.println(" W");
-  Serial.print("Total Consumption: ");
+  Serial.print("Total Consumption (1.8.0): ");
   Serial.print(totalConsumption / 1000.0, 3);
+  Serial.println(" kWh");
+  Serial.print("Total Generation (2.8.0): ");
+  Serial.print(totalGeneration / 1000.0, 3);
+  Serial.println(" kWh");
+  Serial.print("Net Energy: ");
+  Serial.print((totalConsumption - totalGeneration) / 1000.0, 3);
   Serial.println(" kWh");
   Serial.print("Battery Voltage: ");
   Serial.print(getBatteryVoltage());

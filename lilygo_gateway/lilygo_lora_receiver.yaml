@@ -1,0 +1,277 @@
+esphome:
+  name: volkszahler-lora-gateway
+  friendly_name: Volkszähler LoRa Gateway
+  on_boot:
+    priority: -100
+    then:
+      - logger.log: "LoRa Gateway booted successfully"
+  on_shutdown:
+    then:
+      - logger.log: "LoRa Gateway shutting down"
+
+esp32:
+  board: ttgo-lora32-v21
+  framework:
+    type: arduino
+    # Add watchdog timer to prevent hangs
+    platformio_options:
+      board_build.flash_mode: dio
+      board_build.f_cpu: 240000000L
+
+# Include the external component
+external_components:
+  - source: 
+      type: local
+      path: components
+
+# Enable logging with verbose output
+logger:
+  level: DEBUG
+  logs:
+    lora_receiver: VERBOSE  # Extra verbose logging for LoRa component
+    sensor: INFO
+    api: INFO
+
+# Enable Home Assistant API
+api:
+
+# OTA updates
+ota:
+  - platform: esphome
+
+# WiFi Configuration
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  
+  # Enable fallback hotspot
+  ap:
+    ssid: "LoRa-Gateway-Fallback"
+    password: !secret wifi_failover
+
+captive_portal:
+
+# Web server for debugging
+web_server:
+  port: 80
+
+# Time synchronization
+time:
+  - platform: homeassistant
+    id: homeassistant_time
+
+# SPI configuration for LoRa module (TTGO LoRa32 v2.1)
+spi:
+  clk_pin: 5   # SCK
+  mosi_pin: 27 # MOSI  
+  miso_pin: 19 # MISO
+  id: lora_spi
+
+# I2C bus for display
+i2c:
+  sda: 21
+  scl: 22
+  frequency: 400kHz
+  id: bus_a
+
+# LoRa Receiver Component
+lora_receiver:
+  id: lora_rx
+  dio1_pin: 26
+  rst_pin: 23
+  busy_pin: 33
+  
+  # Sensor outputs
+  power:
+    name: "Smart Meter Power"
+    id: meter_power
+    filters:
+      - throttle: 10s
+  
+  consumption:
+    name: "Smart Meter Total Consumption"
+    id: meter_consumption
+    filters:
+      - throttle: 30s
+  
+  generation:
+    name: "Smart Meter Total Generation"
+    id: meter_generation
+    filters:
+      - throttle: 30s
+  
+  battery:
+    name: "Smart Meter Battery Voltage"
+    id: meter_battery
+    filters:
+      - throttle: 60s
+  
+  rssi:
+    name: "LoRa RSSI"
+    id: lora_rssi
+    filters:
+      - throttle: 10s
+  
+  snr:
+    name: "LoRa SNR"
+    id: lora_snr
+    filters:
+      - throttle: 10s
+  
+  packet_counter:
+    name: "LoRa Packet Counter"
+    id: packet_counter
+    filters:
+      - throttle: 10s
+  
+  missed_packets:
+    name: "LoRa Missed Packets"
+    id: missed_packets
+    filters:
+      - throttle: 10s
+
+# Status LED (onboard LED on GPIO 25)
+light:
+  - platform: status_led
+    name: "Status LED"
+    pin:
+      number: 25
+      inverted: false
+    id: status_led
+
+# Restart button for debugging
+button:
+  - platform: restart
+    name: "Restart Gateway"
+    id: restart_button
+
+# Additional sensors
+sensor:
+  # WiFi Signal
+  - platform: wifi_signal
+    name: "WiFi Signal"
+    id: wifi_signal_sensor
+    update_interval: 60s
+    
+  # Uptime
+  - platform: uptime
+    name: "Uptime"
+    id: uptime_sensor
+    update_interval: 60s
+
+# Fonts for display
+font:
+  - file:
+      type: gfonts
+      family: Roboto Mono
+      weight: 400
+    id: font_small
+    size: 10
+    glyphs: "!\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~ °"
+  
+  - file:
+      type: gfonts
+      family: Roboto Mono
+      weight: 400
+    id: font_medium
+    size: 14
+    glyphs: "!\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~ °"
+  
+  - file:
+      type: gfonts
+      family: Roboto Mono
+      weight: 700
+    id: font_large
+    size: 20
+    glyphs: "!\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~ °"
+
+# OLED Display
+display:
+  - platform: ssd1306_i2c
+    model: "SSD1306 128x64"
+    address: 0x3C
+    rotation: 0
+    id: oled_display
+    pages:
+      # Power/Energy Page
+      - id: page_power
+        lambda: |-
+          // Title
+          it.print(64, 0, id(font_small), TextAlign::TOP_CENTER, "SMART METER");
+          it.line(0, 10, 127, 10);
+          
+          // Current Power
+          char power_str[20];
+          float power = id(meter_power).state;
+          if (isnan(power)) {
+            it.print(64, 25, id(font_medium), TextAlign::CENTER, "No Data");
+          } else {
+            if (power < 0) {
+              snprintf(power_str, sizeof(power_str), "<%.0fW", -power);
+              it.print(64, 25, id(font_large), TextAlign::CENTER, power_str);
+              it.print(64, 12, id(font_small), TextAlign::CENTER, "GENERATING");
+            } else {
+              snprintf(power_str, sizeof(power_str), "%.0fW", power);
+              it.print(64, 25, id(font_large), TextAlign::CENTER, power_str);
+              it.print(64, 12, id(font_small), TextAlign::CENTER, "CONSUMING");
+            }
+          }
+          
+          // Bottom stats
+          it.line(0, 46, 127, 46);
+          
+          // Consumption
+          char cons_str[20];
+          float cons = id(meter_consumption).state;
+          if (!isnan(cons)) {
+            snprintf(cons_str, sizeof(cons_str), "In:%.1fkWh", cons);
+            it.print(2, 48, id(font_small), TextAlign::TOP_LEFT, cons_str);
+          }
+          
+          // Generation
+          char gen_str[20];
+          float gen = id(meter_generation).state;
+          if (!isnan(gen)) {
+            snprintf(gen_str, sizeof(gen_str), "Out:%.1fkWh", gen);
+            it.print(126, 48, id(font_small), TextAlign::TOP_RIGHT, gen_str);
+          }
+          
+      # Link Status Page
+      - id: page_link
+        lambda: |-
+          // Title
+          it.print(64, 0, id(font_small), TextAlign::TOP_CENTER, "LINK STATUS");
+          it.line(0, 10, 127, 10);
+          
+          // RSSI
+          it.print(2, 14, id(font_small), TextAlign::TOP_LEFT, "RSSI:");
+          if (!isnan(id(lora_rssi).state)) {
+            char rssi_str[20];
+            int rssi = (int)id(lora_rssi).state;
+            snprintf(rssi_str, sizeof(rssi_str), "%d dBm", rssi);
+            it.print(40, 14, id(font_medium), TextAlign::TOP_LEFT, rssi_str);
+          }
+          
+          // SNR
+          it.print(2, 28, id(font_small), TextAlign::TOP_LEFT, "SNR:");
+          if (!isnan(id(lora_snr).state)) {
+            char snr_str[20];
+            snprintf(snr_str, sizeof(snr_str), "%.1f dB", id(lora_snr).state);
+            it.print(40, 28, id(font_medium), TextAlign::TOP_LEFT, snr_str);
+          }
+          
+          // Battery
+          it.print(2, 42, id(font_small), TextAlign::TOP_LEFT, "Battery:");
+          if (!isnan(id(meter_battery).state)) {
+            char bat_str[20];
+            snprintf(bat_str, sizeof(bat_str), "%.2fV", id(meter_battery).state);
+            it.print(60, 42, id(font_medium), TextAlign::TOP_LEFT, bat_str);
+          }
+          
+          // Packet stats
+          char pkt_str[30];
+          snprintf(pkt_str, sizeof(pkt_str), "Pkts: %d", 
+                   (int)id(packet_counter).state);
+          it.print(2, 54, id(font_small), TextAlign::TOP_LEFT, pkt_str);
+          
+    update_interval: 5s

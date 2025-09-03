@@ -1,0 +1,376 @@
+esphome:
+  name: volkszahler-lora-gateway
+  friendly_name: Volkszähler LoRa Gateway
+
+esp32:
+  board: ttgo-lora32-v21
+  framework:
+    type: arduino
+
+# Enable logging
+logger:
+  level: DEBUG
+
+# Enable Home Assistant API
+api:
+
+# OTA updates
+ota:
+  - platform: esphome
+
+# WiFi Configuration
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  
+  # Enable fallback hotspot
+  ap:
+    ssid: "LoRa-Gateway-Fallback"
+    password: !secret wifi_failover
+
+captive_portal:
+
+# Web server for debugging
+web_server:
+  port: 80
+
+# Time synchronization
+time:
+  - platform: homeassistant
+    id: homeassistant_time
+
+# SPI bus for LoRa module
+spi:
+  clk_pin: 5
+  mosi_pin: 27
+  miso_pin: 19
+  id: lora_spi
+
+# I2C bus for display
+i2c:
+  sda: 21
+  scl: 22
+  frequency: 400kHz
+  id: bus_a
+
+# Native SX127x LoRa component for SX1278 (433MHz)
+sx127x:
+  # Pin configuration for T3 V1.6.1 Lora32 SX1278
+  cs_pin: 18        # LoRa chip select (NSS)
+  rst_pin: 23       # Reset pin
+  dio0_pin: 26      # DIO0/IRQ pin for packet reception
+  
+  # LoRa configuration - must match CubeCell
+  frequency: 433000000  # 433 MHz for international waters
+  modulation: LORA      # LoRa modulation
+  bandwidth: 125_0kHz   # 125 kHz bandwidth
+  spreading_factor: 7   # SF7 - back to original working config
+  coding_rate: CR_4_5   # 4/5 coding rate
+  preamble_size: 8      # Standard preamble size
+  
+  # Power settings
+  pa_pin: BOOST         # Use PA_BOOST for high power
+  pa_power: 14          # Reduced for testing (14 dBm)
+  
+  # Reception settings
+  rx_start: true        # Start in receive mode
+  crc_enable: true      # Enable CRC checking
+  
+  # Packet reception handler
+  on_packet:
+    then:
+      - lambda: |-
+          // Log raw packet data
+          ESP_LOGI("lora", "Packet received! Size: %d bytes", x.size());
+          ESP_LOGI("lora", "RSSI: %.1f dBm, SNR: %.1f dB", rssi, snr);
+          ESP_LOGD("lora", "Raw data: %s", format_hex(x).c_str());
+          
+          // Check if packet size matches our MeterData structure (20 bytes)
+          if (x.size() == 20) {
+            // Parse the MeterData structure
+            float power = *((float*)&x[0]);
+            float consumption = *((float*)&x[4]);
+            float generation = *((float*)&x[8]);
+            float battery = *((float*)&x[12]);
+            uint32_t counter = *((uint32_t*)&x[16]);
+            
+            ESP_LOGI("lora", "=== Meter Data ===");
+            ESP_LOGI("lora", "Power: %.1f W", power);
+            ESP_LOGI("lora", "Consumption: %.3f kWh", consumption);
+            ESP_LOGI("lora", "Generation: %.3f kWh", generation);
+            ESP_LOGI("lora", "Battery: %.2f V", battery);
+            ESP_LOGI("lora", "Packet #%d", counter);
+            
+            // Update sensors
+            id(meter_power).publish_state(power);
+            id(meter_consumption).publish_state(consumption);
+            id(meter_generation).publish_state(generation);
+            id(meter_battery).publish_state(battery);
+            id(lora_rssi).publish_state(rssi);
+            id(lora_snr).publish_state(snr);
+            id(packet_counter).publish_state(counter);
+            
+            // Track missed packets
+            static uint32_t last_counter = 0;
+            static uint32_t missed_total = 0;
+            if (last_counter > 0 && counter > last_counter + 1) {
+              missed_total += (counter - last_counter - 1);
+              id(missed_packets).publish_state(missed_total);
+              ESP_LOGW("lora", "Missed %d packets", counter - last_counter - 1);
+            }
+            last_counter = counter;
+          } else {
+            ESP_LOGW("lora", "Unexpected packet size: %d bytes (expected 20)", x.size());
+          }
+
+# Sensors for meter data
+sensor:
+  # Smart Meter readings
+  - platform: template
+    name: "Smart Meter Power"
+    id: meter_power
+    unit_of_measurement: "W"
+    device_class: power
+    state_class: measurement
+    accuracy_decimals: 1
+    icon: "mdi:flash"
+    
+  - platform: template
+    name: "Smart Meter Total Consumption"
+    id: meter_consumption
+    unit_of_measurement: "kWh"
+    device_class: energy
+    state_class: total_increasing
+    accuracy_decimals: 3
+    icon: "mdi:counter"
+    
+  - platform: template
+    name: "Smart Meter Total Generation"
+    id: meter_generation
+    unit_of_measurement: "kWh"
+    device_class: energy
+    state_class: total_increasing
+    accuracy_decimals: 3
+    icon: "mdi:solar-power"
+    
+  - platform: template
+    name: "Smart Meter Battery Voltage"
+    id: meter_battery
+    unit_of_measurement: "V"
+    device_class: voltage
+    state_class: measurement
+    accuracy_decimals: 2
+    icon: "mdi:battery"
+    
+  # LoRa link quality
+  - platform: template
+    name: "LoRa RSSI"
+    id: lora_rssi
+    unit_of_measurement: "dBm"
+    device_class: signal_strength
+    state_class: measurement
+    accuracy_decimals: 0
+    icon: "mdi:signal"
+    
+  - platform: template
+    name: "LoRa SNR"
+    id: lora_snr
+    unit_of_measurement: "dB"
+    state_class: measurement
+    accuracy_decimals: 1
+    icon: "mdi:signal-distance-variant"
+    
+  - platform: template
+    name: "LoRa Packet Counter"
+    id: packet_counter
+    state_class: measurement
+    accuracy_decimals: 0
+    icon: "mdi:counter"
+    
+  - platform: template
+    name: "LoRa Missed Packets"
+    id: missed_packets
+    state_class: measurement
+    accuracy_decimals: 0
+    icon: "mdi:alert"
+    
+  # System sensors
+  - platform: wifi_signal
+    name: "WiFi Signal"
+    id: wifi_signal_sensor
+    update_interval: 60s
+    
+  - platform: uptime
+    name: "Uptime"
+    id: uptime_sensor
+    update_interval: 60s
+
+# Fonts for display
+font:
+  # Using IBM Plex Mono - has clear open zero without slash/cross
+  - file:
+      type: gfonts
+      family: IBM Plex Mono
+      weight: 400
+    id: font_small
+    size: 10
+    glyphs: "!\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~ °"
+  
+  - file:
+      type: gfonts
+      family: IBM Plex Mono
+      weight: 400
+    id: font_medium
+    size: 14
+    glyphs: "!\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~ °"
+  
+  - file:
+      type: gfonts
+      family: IBM Plex Mono
+      weight: 700
+    id: font_large
+    size: 20
+    glyphs: "!\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~ °"
+
+# OLED Display
+display:
+  - platform: ssd1306_i2c
+    model: "SSD1306 128x64"
+    address: 0x3C
+    rotation: 0
+    id: oled_display
+    pages:
+      # Power/Energy Page
+      - id: page_power
+        lambda: |-
+          // Track last packet time
+          static unsigned long last_packet_millis = 0;
+          static float last_packet_id = -1;
+          
+          // Check if we have a new packet
+          if (!isnan(id(packet_counter).state) && id(packet_counter).state != last_packet_id) {
+            last_packet_millis = millis();
+            last_packet_id = id(packet_counter).state;
+          }
+          
+          // Calculate seconds since last packet
+          unsigned long seconds_ago = 999;
+          if (last_packet_millis > 0) {
+            seconds_ago = (millis() - last_packet_millis) / 1000;
+          }
+          
+          // Title - show last packet time or animated waiting message
+          char title_str[30];
+          if (last_packet_millis == 0) {
+            // Animated dots: cycle through ".", "..", "..." every second
+            int dots = (millis() / 1000) % 4;
+            if (dots == 0) {
+              snprintf(title_str, sizeof(title_str), "Waiting for packets.");
+            } else if (dots == 1) {
+              snprintf(title_str, sizeof(title_str), "Waiting for packets..");
+            } else if (dots == 2) {
+              snprintf(title_str, sizeof(title_str), "Waiting for packets...");
+            } else {
+              snprintf(title_str, sizeof(title_str), "Waiting for packets");
+            }
+            // Move 4 pixels to the right from center (64 + 4 = 68)
+            it.print(68, 0, id(font_small), TextAlign::TOP_CENTER, title_str);
+          } else {
+            snprintf(title_str, sizeof(title_str), "Last packet: %lus ago", seconds_ago);
+            it.print(64, 0, id(font_small), TextAlign::TOP_CENTER, title_str);
+          }
+          
+          // Current Power - positioned at y=27
+          char power_str[20];
+          float power = id(meter_power).state;
+          if (isnan(power)) {
+            it.print(64, 27, id(font_medium), TextAlign::CENTER, "No data");
+          } else {
+            snprintf(power_str, sizeof(power_str), "%.0fW", power);
+            // Moved from y=37 to y=27 (up 10 pixels)
+            it.print(64, 27, id(font_large), TextAlign::CENTER, power_str);
+          }
+          
+          // Battery voltage (left) and RSSI (right) on second to last line
+          char bat_str[20];
+          if (!isnan(id(meter_battery).state)) {
+            snprintf(bat_str, sizeof(bat_str), "Bat:%.2fV", id(meter_battery).state);
+            it.print(2, 43, id(font_small), TextAlign::TOP_LEFT, bat_str);
+          }
+          
+          // RSSI (right)
+          char rssi_str[20];
+          if (!isnan(id(lora_rssi).state)) {
+            snprintf(rssi_str, sizeof(rssi_str), "%ddBm", (int)id(lora_rssi).state);
+            it.print(126, 43, id(font_small), TextAlign::TOP_RIGHT, rssi_str);
+          }
+          
+          // No packet counter - removed
+          
+          // Last line: In (consumption) and Out (generation)
+          char in_str[20];
+          char out_str[20];
+          if (!isnan(id(meter_consumption).state)) {
+            snprintf(in_str, sizeof(in_str), "In:%.1f", id(meter_consumption).state);
+            it.print(2, 53, id(font_small), TextAlign::TOP_LEFT, in_str);
+          }
+          
+          if (!isnan(id(meter_generation).state)) {
+            snprintf(out_str, sizeof(out_str), "Out:%.1f", id(meter_generation).state);
+            it.print(126, 53, id(font_small), TextAlign::TOP_RIGHT, out_str);
+          }
+          
+      # Link Status Page
+      - id: page_link
+        lambda: |-
+          // Title
+          it.print(64, 0, id(font_small), TextAlign::TOP_CENTER, "LINK STATUS");
+          it.line(0, 10, 127, 10);
+          
+          // RSSI with signal bars
+          it.print(2, 14, id(font_small), TextAlign::TOP_LEFT, "RSSI:");
+          if (!isnan(id(lora_rssi).state)) {
+            char rssi_str[20];
+            int rssi = (int)id(lora_rssi).state;
+            snprintf(rssi_str, sizeof(rssi_str), "%d dBm", rssi);
+            it.print(40, 14, id(font_medium), TextAlign::TOP_LEFT, rssi_str);
+            
+            // Signal strength bars
+            int bars = 0;
+            if (rssi > -60) bars = 4;
+            else if (rssi > -70) bars = 3;
+            else if (rssi > -80) bars = 2;
+            else if (rssi > -90) bars = 1;
+            
+            for(int i = 0; i < 4; i++) {
+              int h = 3 + i * 2;
+              int y = 22 - h;
+              if (i < bars) {
+                it.filled_rectangle(100 + i * 4, y, 3, h);
+              } else {
+                it.rectangle(100 + i * 4, y, 3, h);
+              }
+            }
+          } else {
+            it.print(40, 14, id(font_medium), TextAlign::TOP_LEFT, "---");
+          }
+          
+          // SNR
+          it.print(2, 28, id(font_small), TextAlign::TOP_LEFT, "SNR:");
+          if (!isnan(id(lora_snr).state)) {
+            char snr_str[20];
+            snprintf(snr_str, sizeof(snr_str), "%.1f dB", id(lora_snr).state);
+            it.print(40, 28, id(font_medium), TextAlign::TOP_LEFT, snr_str);
+          } else {
+            it.print(40, 28, id(font_medium), TextAlign::TOP_LEFT, "---");
+          }
+          
+          // Packet stats
+          it.print(2, 42, id(font_small), TextAlign::TOP_LEFT, "Packets:");
+          char pkt_str[30];
+          int pkt_count = isnan(id(packet_counter).state) ? 0 : (int)id(packet_counter).state;
+          int missed = isnan(id(missed_packets).state) ? 0 : (int)id(missed_packets).state;
+          snprintf(pkt_str, sizeof(pkt_str), "%d rcvd, %d miss", pkt_count, missed);
+          it.print(2, 52, id(font_small), TextAlign::TOP_LEFT, pkt_str);
+          
+    update_interval: 2s  # Update display every 2 seconds

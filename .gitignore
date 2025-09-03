@@ -1,0 +1,66 @@
+# PlatformIO
+.pio/
+.pioenvs/
+.piolibdeps/
+.clang_complete
+.gcc-flags.json
+.pio/
+*.bin
+*.elf
+*.hex
+
+# ESPHome
+lilygo_gateway/secrets.yaml
+lilygo_gateway/.esphome/
+lilygo_gateway/*.bin
+lilygo_gateway/*.elf
+lilygo_gateway/*.map
+lilygo_gateway/*.yaml.bak
+
+# Build artifacts
+build/
+dist/
+*.o
+*.a
+*.d
+*.exe
+*.out
+*.app
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.env
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.backup
+*.old
+
+# Documentation build
+docs/_build/
+*.pdf
+
+# Custom
+.cache/
+.history/

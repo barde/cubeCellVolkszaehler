@@ -1,0 +1,325 @@
+esphome:
+  name: volkszahler-lora-gateway
+  friendly_name: Volkszähler LoRa Gateway
+
+esp32:
+  board: ttgo-lora32-v21
+  framework:
+    type: arduino
+
+# Enable logging
+logger:
+  level: DEBUG
+
+# Enable Home Assistant API
+api:
+
+# OTA updates
+ota:
+  - platform: esphome
+
+# WiFi Configuration
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  
+  # Enable fallback hotspot
+  ap:
+    ssid: "LoRa-Gateway-Fallback"
+    password: !secret wifi_failover
+
+captive_portal:
+
+# Web server for debugging
+web_server:
+  port: 80
+
+# Time synchronization
+time:
+  - platform: homeassistant
+    id: homeassistant_time
+
+# SPI bus for LoRa module
+spi:
+  clk_pin: 5
+  mosi_pin: 27
+  miso_pin: 19
+  id: lora_spi
+
+# I2C bus for display
+i2c:
+  sda: 21
+  scl: 22
+  frequency: 400kHz
+  id: bus_a
+
+# Native SX126x LoRa component (merged in ESPHome 2025.7+)
+sx126x:
+  # Pin configuration for LilyGo T-Beam/LoRa32 with SX1262
+  cs_pin: 18        # LoRa chip select
+  dio1_pin: 26      # DIO1/IRQ pin
+  rst_pin: 23       # Reset pin  
+  busy_pin: 32      # Busy pin (changed from 33 to 32)
+  
+  # Hardware configuration
+  hw_version: sx1262
+  
+  # LoRa configuration - must match CubeCell
+  frequency: 433000000  # 433 MHz for international waters
+  modulation: LORA
+  bandwidth: 125_0kHz   # 125 kHz bandwidth
+  spreading_factor: 7   # SF7 for fast transmission
+  coding_rate: CR_4_5   # 4/5 coding rate
+  crc_enable: true      # Enable CRC
+  
+  # Power settings
+  pa_power: 20          # Max power for international waters
+  rf_switch: false      # LilyGo doesn't have RF switch
+  
+  # Packet reception handler
+  on_packet:
+    then:
+      - lambda: |-
+          // Log raw packet data
+          ESP_LOGI("lora", "Packet received! Size: %d bytes", x.size());
+          ESP_LOGI("lora", "RSSI: %.1f dBm, SNR: %.1f dB", rssi, snr);
+          
+          // Check if packet size matches our MeterData structure (20 bytes)
+          if (x.size() == 20) {
+            // Parse the MeterData structure
+            float power = *((float*)&x[0]);
+            float consumption = *((float*)&x[4]);
+            float generation = *((float*)&x[8]);
+            float battery = *((float*)&x[12]);
+            uint32_t counter = *((uint32_t*)&x[16]);
+            
+            ESP_LOGI("lora", "=== Meter Data ===");
+            ESP_LOGI("lora", "Power: %.1f W", power);
+            ESP_LOGI("lora", "Consumption: %.3f kWh", consumption);
+            ESP_LOGI("lora", "Generation: %.3f kWh", generation);
+            ESP_LOGI("lora", "Battery: %.2f V", battery);
+            ESP_LOGI("lora", "Packet #%d", counter);
+            
+            // Update sensors
+            id(meter_power).publish_state(power);
+            id(meter_consumption).publish_state(consumption);
+            id(meter_generation).publish_state(generation);
+            id(meter_battery).publish_state(battery);
+            id(lora_rssi).publish_state(rssi);
+            id(lora_snr).publish_state(snr);
+            id(packet_counter).publish_state(counter);
+            
+            // Track missed packets
+            static uint32_t last_counter = 0;
+            static uint32_t missed_total = 0;
+            if (last_counter > 0 && counter > last_counter + 1) {
+              missed_total += (counter - last_counter - 1);
+              id(missed_packets).publish_state(missed_total);
+            }
+            last_counter = counter;
+          } else {
+            ESP_LOGW("lora", "Unexpected packet size: %d bytes", x.size());
+            ESP_LOGD("lora", "Raw data: %s", format_hex(x).c_str());
+          }
+
+# Sensors for meter data
+sensor:
+  # Smart Meter readings
+  - platform: template
+    name: "Smart Meter Power"
+    id: meter_power
+    unit_of_measurement: "W"
+    device_class: power
+    state_class: measurement
+    accuracy_decimals: 1
+    icon: "mdi:flash"
+    
+  - platform: template
+    name: "Smart Meter Total Consumption"
+    id: meter_consumption
+    unit_of_measurement: "kWh"
+    device_class: energy
+    state_class: total_increasing
+    accuracy_decimals: 3
+    icon: "mdi:counter"
+    
+  - platform: template
+    name: "Smart Meter Total Generation"
+    id: meter_generation
+    unit_of_measurement: "kWh"
+    device_class: energy
+    state_class: total_increasing
+    accuracy_decimals: 3
+    icon: "mdi:solar-power"
+    
+  - platform: template
+    name: "Smart Meter Battery Voltage"
+    id: meter_battery
+    unit_of_measurement: "V"
+    device_class: voltage
+    state_class: measurement
+    accuracy_decimals: 2
+    icon: "mdi:battery"
+    
+  # LoRa link quality
+  - platform: template
+    name: "LoRa RSSI"
+    id: lora_rssi
+    unit_of_measurement: "dBm"
+    device_class: signal_strength
+    state_class: measurement
+    accuracy_decimals: 0
+    icon: "mdi:signal"
+    
+  - platform: template
+    name: "LoRa SNR"
+    id: lora_snr
+    unit_of_measurement: "dB"
+    state_class: measurement
+    accuracy_decimals: 1
+    icon: "mdi:signal-distance-variant"
+    
+  - platform: template
+    name: "LoRa Packet Counter"
+    id: packet_counter
+    state_class: measurement
+    accuracy_decimals: 0
+    icon: "mdi:counter"
+    
+  - platform: template
+    name: "LoRa Missed Packets"
+    id: missed_packets
+    state_class: measurement
+    accuracy_decimals: 0
+    icon: "mdi:alert"
+    
+  # System sensors
+  - platform: wifi_signal
+    name: "WiFi Signal"
+    id: wifi_signal_sensor
+    update_interval: 60s
+    
+  - platform: uptime
+    name: "Uptime"
+    id: uptime_sensor
+    update_interval: 60s
+
+# Fonts for display
+font:
+  - file:
+      type: gfonts
+      family: Roboto Mono
+      weight: 400
+    id: font_small
+    size: 10
+    glyphs: "!\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~ °"
+  
+  - file:
+      type: gfonts
+      family: Roboto Mono
+      weight: 400
+    id: font_medium
+    size: 14
+    glyphs: "!\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~ °"
+  
+  - file:
+      type: gfonts
+      family: Roboto Mono
+      weight: 700
+    id: font_large
+    size: 20
+    glyphs: "!\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~ °"
+
+# OLED Display
+display:
+  - platform: ssd1306_i2c
+    model: "SSD1306 128x64"
+    address: 0x3C
+    rotation: 0
+    id: oled_display
+    pages:
+      # Power/Energy Page
+      - id: page_power
+        lambda: |-
+          // Title
+          it.print(64, 0, id(font_small), TextAlign::TOP_CENTER, "SMART METER");
+          it.line(0, 10, 127, 10);
+          
+          // Current Power
+          char power_str[20];
+          float power = id(meter_power).state;
+          if (isnan(power)) {
+            it.print(64, 25, id(font_medium), TextAlign::CENTER, "No Data");
+          } else {
+            snprintf(power_str, sizeof(power_str), "%.0fW", power);
+            it.print(64, 25, id(font_large), TextAlign::CENTER, power_str);
+            
+            // Show test counter value for debugging
+            char test_str[20];
+            snprintf(test_str, sizeof(test_str), "Test: %.1f", power / 100.0);
+            it.print(64, 12, id(font_small), TextAlign::CENTER, test_str);
+          }
+          
+          // Bottom stats
+          it.line(0, 46, 127, 46);
+          
+          // Packet counter
+          char pkt_str[20];
+          if (!isnan(id(packet_counter).state)) {
+            snprintf(pkt_str, sizeof(pkt_str), "Pkt #%d", (int)id(packet_counter).state);
+            it.print(2, 48, id(font_small), TextAlign::TOP_LEFT, pkt_str);
+          }
+          
+          // RSSI
+          char rssi_str[20];
+          if (!isnan(id(lora_rssi).state)) {
+            snprintf(rssi_str, sizeof(rssi_str), "%ddBm", (int)id(lora_rssi).state);
+            it.print(126, 48, id(font_small), TextAlign::TOP_RIGHT, rssi_str);
+          }
+          
+          // Battery
+          char bat_str[20];
+          if (!isnan(id(meter_battery).state)) {
+            snprintf(bat_str, sizeof(bat_str), "Bat: %.2fV", id(meter_battery).state);
+            it.print(64, 56, id(font_small), TextAlign::TOP_CENTER, bat_str);
+          }
+          
+      # Link Status Page
+      - id: page_link
+        lambda: |-
+          // Title
+          it.print(64, 0, id(font_small), TextAlign::TOP_CENTER, "LINK STATUS");
+          it.line(0, 10, 127, 10);
+          
+          // RSSI
+          it.print(2, 14, id(font_small), TextAlign::TOP_LEFT, "RSSI:");
+          if (!isnan(id(lora_rssi).state)) {
+            char rssi_str[20];
+            int rssi = (int)id(lora_rssi).state;
+            snprintf(rssi_str, sizeof(rssi_str), "%d dBm", rssi);
+            it.print(40, 14, id(font_medium), TextAlign::TOP_LEFT, rssi_str);
+          }
+          
+          // SNR
+          it.print(2, 28, id(font_small), TextAlign::TOP_LEFT, "SNR:");
+          if (!isnan(id(lora_snr).state)) {
+            char snr_str[20];
+            snprintf(snr_str, sizeof(snr_str), "%.1f dB", id(lora_snr).state);
+            it.print(40, 28, id(font_medium), TextAlign::TOP_LEFT, snr_str);
+          }
+          
+          // Packet stats
+          it.print(2, 42, id(font_small), TextAlign::TOP_LEFT, "Packets:");
+          char pkt_str[30];
+          snprintf(pkt_str, sizeof(pkt_str), "%d rcvd", 
+                   (int)id(packet_counter).state);
+          it.print(60, 42, id(font_small), TextAlign::TOP_LEFT, pkt_str);
+          
+          // Missed packets
+          if (!isnan(id(missed_packets).state) && id(missed_packets).state > 0) {
+            char miss_str[20];
+            snprintf(miss_str, sizeof(miss_str), "%d missed", (int)id(missed_packets).state);
+            it.print(60, 52, id(font_small), TextAlign::TOP_LEFT, miss_str);
+          }
+          
+    update_interval: 2s  # Update display every 2 seconds

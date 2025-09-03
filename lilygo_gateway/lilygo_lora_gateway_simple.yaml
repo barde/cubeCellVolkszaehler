@@ -1,0 +1,69 @@
+esphome:
+  name: volkszahler-lora-gateway
+  friendly_name: Volkszähler LoRa Gateway
+
+esp32:
+  board: ttgo-lora32-v21
+  framework:
+    type: arduino
+
+# Enable logging
+logger:
+  level: DEBUG
+
+# Enable Home Assistant API
+api:
+
+# OTA updates
+ota:
+  - platform: esphome
+
+# WiFi Configuration
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  
+  # Enable fallback hotspot
+  ap:
+    ssid: "LoRa-Gateway-Fallback"
+    password: "fallback123"
+
+captive_portal:
+
+# Web server for debugging
+web_server:
+  port: 80
+
+# I2C bus for display
+i2c:
+  sda: 21
+  scl: 22
+  frequency: 400kHz
+
+# Simple font using built-in
+font:
+  - file: 
+      type: gfonts
+      family: Roboto
+      weight: 400
+    id: font_roboto
+    size: 14
+
+# OLED Display configuration  
+display:
+  - platform: ssd1306_i2c
+    model: "SSD1306 128x64"
+    address: 0x3C
+    lambda: |-
+      it.print(0, 0, id(font_roboto), "LoRa Gateway");
+      it.print(0, 16, id(font_roboto), "Initializing...");
+      it.printf(0, 32, id(font_roboto), "WiFi: %s", WiFi.isConnected() ? "Connected" : "Disconnected");
+
+# Basic sensors for testing
+sensor:
+  - platform: wifi_signal
+    name: "WiFi Signal"
+    update_interval: 60s
+    
+  - platform: uptime
+    name: "Uptime"

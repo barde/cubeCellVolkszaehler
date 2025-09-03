@@ -223,16 +223,10 @@ This means:
 
 ## 🙏 Acknowledgments
 
-- [Volkszähler](https://volkszaehler.org/) - IR reader protocol
-- [Heltec](https://heltec.org/) - CubeCell platform
-- [ESPHome](https://esphome.io/) - ESP32 framework
+- [Volkszähler](https://volkszaehler.org/) - SmartMeter DIY wiki, schematics and protocols
+- [Heltec](https://heltec.org/) - CubeCell platform for low power LoRa use-cases
+- [ESPHome](https://esphome.io/) - Integrate your sensors and actors into your Home Assistant with bulk hardware ESP32 and other embedded systems
 - [Home Assistant](https://home-assistant.io/) - Smart home platform
-
-## 📬 Contact
-
-**Barde** - [@barde](https://github.com/barde)
-
-Project Link: [https://github.com/barde/cubeCellVolkszaehler](https://github.com/barde/cubeCellVolkszaehler)
 
 ---
 

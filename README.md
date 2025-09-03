@@ -29,25 +29,6 @@ graph LR
     style C fill:#87CEEB
 ```
 
-### 🎥 Demo
-
-<details>
-<summary><b>View Live Dashboard</b></summary>
-
-```
-┌─────────────────────────┐
-│    SMART METER          │
-│─────────────────────────│
-│    CONSUMING            │
-│      247W               │
-│                         │
-│─────────────────────────│
-│ In:1234.5kWh Out:567.8  │
-└─────────────────────────┘
-```
-
-</details>
-
 ## ✨ Features
 
 ### 🔋 Ultra-Low Power

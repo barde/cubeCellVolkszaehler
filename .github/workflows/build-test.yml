@@ -1,0 +1,55 @@
+name: Test Build
+
+on:
+  push:
+    branches: [ master, main ]
+  pull_request:
+    branches: [ master, main ]
+  workflow_dispatch:
+
+jobs:
+  build-test:
+    name: Test Firmware Builds
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Cache dependencies
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.platformio
+          ~/.cache/pip
+          ~/.esphome
+        key: ${{ runner.os }}-build-${{ hashFiles('platformio.ini', 'lilygo_gateway/*.yaml') }}
+
+    - name: Install PlatformIO
+      run: |
+        pip install platformio
+        pio --version
+
+    - name: Build CubeCell Test Mode
+      run: |
+        pio run -e cubecell_testmode
+        echo "✅ CubeCell test mode builds successfully"
+
+    - name: Build CubeCell Production Mode
+      run: |
+        pio run -e cubecell_lora
+        echo "✅ CubeCell production mode builds successfully"
+
+    - name: Check build sizes
+      run: |
+        echo "### 📊 Build Sizes" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "| Target | Flash Usage | RAM Usage |" >> $GITHUB_STEP_SUMMARY
+        echo "|--------|-------------|-----------|" >> $GITHUB_STEP_SUMMARY
+        pio run -e cubecell_testmode -t size | grep -A2 "RAM:" | tail -2 >> $GITHUB_STEP_SUMMARY || true
+        pio run -e cubecell_lora -t size | grep -A2 "RAM:" | tail -2 >> $GITHUB_STEP_SUMMARY || true

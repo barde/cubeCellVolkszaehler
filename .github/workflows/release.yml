@@ -1,0 +1,304 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version number (e.g., v1.0.0)'
+        required: true
+        default: 'v1.0.0'
+
+jobs:
+  build:
+    name: Build Release Binaries
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - name: Set version
+      id: version
+      run: |
+        if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          echo "VERSION=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+        else
+          echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+        fi
+        echo "Building version: $VERSION"
+
+    - name: Cache PlatformIO
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.platformio
+          ~/.cache/pip
+        key: ${{ runner.os }}-pio-${{ hashFiles('platformio.ini') }}
+        restore-keys: |
+          ${{ runner.os }}-pio-
+
+    - name: Cache ESPHome
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.esphome
+          lilygo_gateway/.esphome
+        key: ${{ runner.os }}-esphome-${{ hashFiles('lilygo_gateway/*.yaml') }}
+        restore-keys: |
+          ${{ runner.os }}-esphome-
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install platformio esphome
+        
+    - name: Create release directories
+      run: |
+        mkdir -p release/cubecell
+        mkdir -p release/lora32
+        mkdir -p release/docs
+
+    - name: Build CubeCell Test Mode
+      run: |
+        pio run -e cubecell_testmode
+        cp .pio/build/cubecell_testmode/firmware.hex release/cubecell/cubecell_testmode_${{ steps.version.outputs.VERSION }}.hex
+        cp .pio/build/cubecell_testmode/firmware.cyacd release/cubecell/cubecell_testmode_${{ steps.version.outputs.VERSION }}.cyacd
+        echo "✅ CubeCell test mode built"
+
+    - name: Build CubeCell Production Mode
+      run: |
+        pio run -e cubecell_lora
+        cp .pio/build/cubecell_lora/firmware.hex release/cubecell/cubecell_production_${{ steps.version.outputs.VERSION }}.hex
+        cp .pio/build/cubecell_lora/firmware.cyacd release/cubecell/cubecell_production_${{ steps.version.outputs.VERSION }}.cyacd
+        echo "✅ CubeCell production mode built"
+
+    - name: Build CubeCell Original Version
+      run: |
+        pio run -e cubecell_original
+        cp .pio/build/cubecell_original/firmware.hex release/cubecell/cubecell_original_${{ steps.version.outputs.VERSION }}.hex
+        cp .pio/build/cubecell_original/firmware.cyacd release/cubecell/cubecell_original_${{ steps.version.outputs.VERSION }}.cyacd
+        echo "✅ CubeCell original version built"
+
+    - name: Prepare ESPHome secrets
+      run: |
+        cd lilygo_gateway
+        cat > secrets.yaml << EOF
+        wifi_ssid: "SETUP_REQUIRED"
+        wifi_password: "SETUP_REQUIRED"
+        wifi_failover: "fallback123456"
+        api_encryption_key: "CHANGE_THIS_TO_RANDOM_BASE64_STRING"
+        EOF
+
+    - name: Build LoRa32 Gateway
+      run: |
+        cd lilygo_gateway
+        esphome compile lilygo_lora_receiver.yaml
+        cp .esphome/build/volkszahler-lora-gateway/.pioenvs/volkszahler-lora-gateway/firmware.bin ../release/lora32/lora32_gateway_${{ steps.version.outputs.VERSION }}.bin
+        cp .esphome/build/volkszahler-lora-gateway/.pioenvs/volkszahler-lora-gateway/firmware.factory.bin ../release/lora32/lora32_gateway_factory_${{ steps.version.outputs.VERSION }}.bin
+        echo "✅ LoRa32 gateway built"
+
+    - name: Create flashing documentation
+      run: |
+        cat > release/docs/FLASHING_GUIDE.md << 'EOF'
+        # 📋 Flashing Guide
+        
+        ## 🔧 CubeCell HTCC-AB01
+        
+        ### Option 1: Web Flasher (Easiest)
+        1. Visit [CubeCell Web Flasher](https://heltec.org/webflash)
+        2. Connect CubeCell via USB
+        3. Select the `.hex` file
+        4. Click Flash
+        
+        ### Option 2: PlatformIO
+        ```bash
+        pio run -e cubecell_testmode --target upload
+        ```
+        
+        ### Option 3: CubeCell Flash Tool
+        Download from [Heltec Resources](https://resource.heltec.cn/download/CubeCell)
+        
+        ### Firmware Files
+        | File | Description | Use Case |
+        |------|-------------|----------|
+        | `cubecell_testmode_*.hex` | Test mode, 5s intervals | Initial testing |
+        | `cubecell_production_*.hex` | Production, 60s + deep sleep | Battery operation |
+        | `cubecell_original_*.hex` | Simplified version | Troubleshooting |
+        
+        ## 📡 LoRa32 Gateway (LilyGo T3)
+        
+        ### Option 1: ESPHome Web (Easiest)
+        1. Visit https://web.esphome.io
+        2. Connect LoRa32 via USB
+        3. Click INSTALL
+        4. Select "Upload a file"
+        5. Choose `lora32_gateway_factory_*.bin`
+        
+        ### Option 2: esptool
+        ```bash
+        esptool.py --chip esp32 --port /dev/ttyUSB0 --baud 460800 \
+          write_flash -z 0x0 lora32_gateway_factory_*.bin
+        ```
+        
+        ### Option 3: ESPHome Dashboard
+        1. Install ESPHome: `pip install esphome`
+        2. Run: `esphome dashboard lilygo_gateway/`
+        3. Upload OTA using `lora32_gateway_*.bin`
+        
+        ## 🔌 Post-Flash Setup
+        
+        ### CubeCell
+        - Press **RST** button after flashing
+        - LED should blink every 5s (test) or 60s (production)
+        - Check serial monitor at 115200 baud
+        
+        ### LoRa32
+        1. Device creates WiFi AP: `LoRa-Gateway-Fallback`
+        2. Connect and configure your WiFi
+        3. Device appears in Home Assistant
+        4. OLED shows "Waiting for packets..."
+        
+        ## ❓ Troubleshooting
+        
+        | Issue | Solution |
+        |-------|----------|
+        | CubeCell won't flash | Hold USER, press RST, release USER |
+        | LoRa32 won't flash | Hold BOOT, press RST, release BOOT |
+        | No communication | Verify both use 433 MHz |
+        | Wrong battery voltage | Known v2 hardware issue |
+        EOF
+
+    - name: Copy documentation
+      run: |
+        cp README.md release/docs/
+        cp LICENSE release/
+        
+    - name: Generate checksums
+      run: |
+        cd release
+        echo "# SHA256 Checksums" > CHECKSUMS.txt
+        echo "Generated: $(date)" >> CHECKSUMS.txt
+        echo "" >> CHECKSUMS.txt
+        find . -type f \( -name "*.hex" -o -name "*.bin" -o -name "*.cyacd" \) -exec sha256sum {} \; >> CHECKSUMS.txt
+
+    - name: Create release archives
+      run: |
+        cd release
+        zip -r ../cubecell_firmware_${{ steps.version.outputs.VERSION }}.zip cubecell/ docs/FLASHING_GUIDE.md CHECKSUMS.txt
+        zip -r ../lora32_firmware_${{ steps.version.outputs.VERSION }}.zip lora32/ docs/FLASHING_GUIDE.md CHECKSUMS.txt
+        zip -r ../volkszahler_lora_complete_${{ steps.version.outputs.VERSION }}.zip .
+        cd ..
+        
+    - name: Generate release notes
+      id: release_notes
+      run: |
+        cat > release_notes.md << 'EOF'
+        # 🚀 Release ${{ steps.version.outputs.VERSION }}
+        
+        ## 📦 Firmware Packages
+        
+        ### Quick Download Links
+        - **🎯 Complete Package**: `volkszahler_lora_complete_${{ steps.version.outputs.VERSION }}.zip`
+        - **📡 CubeCell Only**: `cubecell_firmware_${{ steps.version.outputs.VERSION }}.zip`
+        - **📶 LoRa32 Only**: `lora32_firmware_${{ steps.version.outputs.VERSION }}.zip`
+        
+        ## 🔧 What's Included
+        
+        ### CubeCell Transmitter (3 variants)
+        - **Test Mode** (`cubecell_testmode_*.hex`): 5-second intervals for testing
+        - **Production Mode** (`cubecell_production_*.hex`): 60-second intervals with deep sleep
+        - **Original Version** (`cubecell_original_*.hex`): Simplified fallback version
+        
+        ### LoRa32 Gateway (2 variants)
+        - **OTA Update** (`lora32_gateway_*.bin`): For existing installations
+        - **Factory Image** (`lora32_gateway_factory_*.bin`): Complete first-time install
+        
+        ## ⚡ Quick Start
+        
+        1. **Download** the complete package or individual firmware
+        2. **Flash** using [ESPHome Web](https://web.esphome.io) or [CubeCell Tools](https://heltec.org)
+        3. **Configure** WiFi on LoRa32 (connects as AP first time)
+        4. **Verify** communication - LED blinks indicate success
+        
+        ## 📡 Configuration
+        
+        Both devices are pre-configured with:
+        - **Frequency**: 433 MHz (international waters)
+        - **Spreading Factor**: SF7
+        - **Bandwidth**: 125 kHz
+        - **Sync Word**: 0x12
+        
+        ## 🐛 Known Issues
+        
+        - CubeCell v2 battery voltage reads ~1.2V (hardware defect, cannot fix)
+        - LoRa32 may need manual reset if hanging (press RST button)
+        
+        ## 📝 Changelog
+        
+        - Build date: $(date +"%Y-%m-%d %H:%M UTC")
+        - Git commit: ${{ github.sha }}
+        - Build number: ${{ github.run_number }}
+        
+        ## 📚 Documentation
+        
+        See `FLASHING_GUIDE.md` in the archives for detailed instructions.
+        
+        ## 🔒 Verification
+        
+        All files include SHA256 checksums in `CHECKSUMS.txt`
+        
+        ---
+        *Built with ❤️ by GitHub Actions*
+        EOF
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: firmware-binaries
+        path: |
+          cubecell_firmware_*.zip
+          lora32_firmware_*.zip
+          volkszahler_lora_complete_*.zip
+          release/CHECKSUMS.txt
+        retention-days: 90
+
+    - name: Create GitHub Release
+      if: startsWith(github.ref, 'refs/tags/')
+      uses: softprops/action-gh-release@v2
+      with:
+        name: Release ${{ steps.version.outputs.VERSION }}
+        body_path: release_notes.md
+        draft: false
+        prerelease: false
+        files: |
+          cubecell_firmware_*.zip
+          lora32_firmware_*.zip
+          volkszahler_lora_complete_*.zip
+          release/cubecell/*.hex
+          release/cubecell/*.cyacd
+          release/lora32/*.bin
+          release/CHECKSUMS.txt
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Summary
+      run: |
+        echo "## 🎉 Build Complete!" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 📦 Generated Files:" >> $GITHUB_STEP_SUMMARY
+        echo "- CubeCell variants: 3" >> $GITHUB_STEP_SUMMARY
+        echo "- LoRa32 variants: 2" >> $GITHUB_STEP_SUMMARY
+        echo "- Version: ${{ steps.version.outputs.VERSION }}" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 📥 Downloads:" >> $GITHUB_STEP_SUMMARY
+        echo "Artifacts are available in the Actions tab for 90 days" >> $GITHUB_STEP_SUMMARY

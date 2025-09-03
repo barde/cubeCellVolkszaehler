@@ -60,13 +60,13 @@ graph LR
 
 | Component | Model | Price | Link |
 |-----------|-------|-------|------|
-| **Transmitter** | Heltec CubeCell HTCC-AB01 | ~$15 | [🛒](https://heltec.org/project/htcc-ab01/) |
-| **IR Reader** | Volkszähler IR Head | ~$25 | [🛒](https://wiki.volkszaehler.org/hardware/controllers/ir-schreib-lesekopf) |
-| **Gateway** | LilyGo T3 LoRa32 v1.6.1 | ~$30 | [🛒](https://www.lilygo.cc/products/lora3) |
-| **Battery** | 18650 Li-Ion (optional) | ~$10 | Local |
-| **Case** | Waterproof enclosure | ~$15 | Local |
+| **Transmitter** | Heltec CubeCell HTCC-AB01 | ~15€ | [🛒](https://heltec.org/project/htcc-ab01/) |
+| **IR Reader** | Volkszähler IR Head | ~25€ | [🛒](https://wiki.volkszaehler.org/hardware/controllers/ir-schreib-lesekopf) |
+| **Gateway** | LilyGo T3 LoRa32 v1.6.1 | ~28€ | [🛒](https://www.lilygo.cc/products/lora3) |
+| **Battery** | 18650 Li-Ion (optional) | ~10€ | Local |
+| **Case** | Waterproof enclosure | ~12€ | Local |
 
-**Total Cost: ~$95**
+**Total Cost: ~90€**
 
 ### 📐 Wiring Diagram
 
